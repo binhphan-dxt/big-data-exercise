@@ -1,0 +1,2 @@
+# No project-specific requirements yet.
+# Common dependencies are installed from ../base/requirements.txt
