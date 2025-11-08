@@ -1,0 +1,34 @@
+Bài tập 1: Real-Time Multi-Stream Vehicle Counting System
+
+• Mục tiêu
+• Xây dựng một hệ thống xử lý dữ liệu thời gian thực (real-time streaming) cho bài toán đếm và
+giám sát phương tiện, sử dụng Kafka – Spark – Airflow – Streamlit (hoặc Flask).
+Hệ thống phải có khả năng:
+• Nhận dữ liệu video từ nhiều nguồn (từ 2 video offline trở lên) và gửi vào Kafka server.
+• Đọc dữ liệu streaming từ Kafka bằng Spark Structured Streaming.
+• Áp dụng pandas_udf trong Spark để thực hiện tác vụ đếm xe theo thời gian thực, dựa trên mô
+hình YOLO đã được huấn luyện sẵn.
+• Lưu kết quả xử lý vào cơ sở dữ liệu (PostgreSQL hoặc hệ quản trị khác tùy chọn).
+• Trực quan hóa kết quả theo thời gian thực trên web app (Streamlit hoặc Flask).
+• Sử dụng Apache Airflow để điều phối toàn bộ vòng đời của hệ thống (khởi động – giám sát – dừng
+– dọn dẹp).
+
+bài tập 1 thì sửa lại thay vì stream file .csv thì có 2 producer stream 2 cái video, rồi cũng sửa lại consumer để cho bước inference, sửa lại file streamlit để hiển thị thống kê đếm xe.
+
+
+Bài tập 2: Big Data Streaming ABSA with Automated Model Retraining in Airflow
+
+• Mục tiêu
+• Xây dựng hệ thống ABSA trong môi trường Big Data Streaming, sử dụng Kafka – Spark Structured
+Streaming – Airflow – PostgreSQL – Streamlit.
+• Hệ thống phải có khả năng:
+• Xử lý dữ liệu bình luận theo thời gian thực thông qua Kafka và Spark Structured Streaming.
+• Áp dụng mô hình ABSA đã huấn luyện sẵn (best_absa_hardshare.pt) để gán nhãn cảm xúc cho
+từng bình luận và lưu kết quả vào cơ sở dữ liệu PostgreSQL.
+• Hiển thị kết quả phân tích trên dashboard (Streamlit/Flask/...)
+• Bổ sung pipeline tự động huấn luyện và cập nhật mô hình định kỳ, được điều phối bởi Apache
+Airflow.
+• Pipeline huấn luyện phải có bước đánh giá mô hình mới và chỉ cập nhật mô hình đang sử dụng nếu
+kết quả tốt hơn.
+• Đảm bảo pipeline streaming và retraining hoạt động đồng bộ, mô hình mới được áp dụng tự động
+trong pipeline streaming sau khi cập nhật.
