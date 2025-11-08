@@ -48,6 +48,20 @@ RUN pip install --no-cache-dir -r /tmp/base_requirements.txt && \
         /home/airflow/.local/lib/python3.*/site-packages/kafka/codec.py || true
 
 # ================================
+# 🔧 Set up Spark environment variables
+# ================================
+# Get SPARK_HOME from the installed pyspark package
+RUN PYSPARK_PATH=$(python3 -c "import pyspark; import os; print(os.path.dirname(pyspark.__file__))" 2>/dev/null || echo "/home/airflow/.local/lib/python3.12/site-packages/pyspark") && \
+    echo "export SPARK_HOME=$PYSPARK_PATH" >> /home/airflow/.bashrc && \
+    echo "export PATH=\$SPARK_HOME/bin:\$PATH" >> /home/airflow/.bashrc
+
+# Set environment variables for all processes
+ENV SPARK_HOME=/home/airflow/.local/lib/python3.12/site-packages/pyspark
+ENV PYSPARK_PYTHON=/usr/local/bin/python3
+ENV PYSPARK_DRIVER_PYTHON=/usr/local/bin/python3
+ENV PATH="${SPARK_HOME}/bin:${PATH}"
+
+# ================================
 # 🔧 Copy scripts và cấp quyền thực thi (chuẩn reproducible)
 # ================================
 USER root

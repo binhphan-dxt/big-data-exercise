@@ -16,6 +16,10 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+# Tăng threads với 16GB Docker RAM
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["MKL_NUM_THREADS"] = "4"
+
 # === Cấu hình ===
 MODELS_DIR = "/opt/airflow/models"
 CURRENT_MODEL_PATH = "/opt/airflow/models/best_absa_hardshare.pt"

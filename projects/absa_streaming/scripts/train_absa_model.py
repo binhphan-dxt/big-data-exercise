@@ -21,18 +21,26 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+# Tăng threads với 16GB Docker RAM
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["MKL_NUM_THREADS"] = "4"
+torch.set_num_threads(4)
+
+# Tắt caching của tokenizer để tiết kiệm RAM
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 # === Cấu hình ===
 ASPECTS = ["Price", "Shipping", "Outlook", "Quality", "Size", "Shop_Service", "General", "Others"]
 # Dùng distilbert-base-multilingual-cased thay vì xlm-roberta-base để tiết kiệm RAM (~500MB vs ~1GB)
 MODEL_NAME = "distilbert-base-multilingual-cased"
-MAX_LEN = 32  # Giảm từ 64 xuống 32 để tiết kiệm RAM
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 1  # Giảm xuống 1 để tiết kiệm RAM tối đa
-EPOCHS = 1  # Chỉ train 1 epoch để tiết kiệm RAM và thời gian
+MAX_LEN = 64  # Tăng lên 64 với 16GB RAM
+DEVICE = "cpu"  # Force CPU để tránh CUDA overhead trên Mac M chip
+BATCH_SIZE = 8  # Tăng lên 8 với 16GB RAM
+EPOCHS = 3  # Tăng lên 3 epochs để model tốt hơn
 LEARNING_RATE = 2e-5
-GRADIENT_ACCUMULATION_STEPS = 8  # Tăng accumulation để effective batch size = 8
-MAX_TRAIN_SAMPLES = 500  # Giới hạn số mẫu training để tiết kiệm RAM (None = dùng tất cả)
-MAX_VAL_SAMPLES = 100  # Giới hạn số mẫu validation
+GRADIENT_ACCUMULATION_STEPS = 4  # Effective batch = 32
+MAX_TRAIN_SAMPLES = None  # Không giới hạn - dùng tất cả dữ liệu
+MAX_VAL_SAMPLES = None  # Không giới hạn - dùng tất cả dữ liệu
 
 # Đường dẫn
 DATA_PATH = "/opt/airflow/projects/absa_streaming/data/test_data.csv"
@@ -142,19 +150,6 @@ def train_model():
     val_texts = texts[split_idx:]
     val_aspects = aspect_labels[split_idx:]
     val_sentiments = sentiment_labels[split_idx:]
-    
-    # Giới hạn số mẫu để tiết kiệm RAM
-    if MAX_TRAIN_SAMPLES and len(train_texts) > MAX_TRAIN_SAMPLES:
-        print(f"[Train] ⚠️ Giới hạn training samples từ {len(train_texts)} xuống {MAX_TRAIN_SAMPLES}")
-        train_texts = train_texts[:MAX_TRAIN_SAMPLES]
-        train_aspects = train_aspects[:MAX_TRAIN_SAMPLES]
-        train_sentiments = train_sentiments[:MAX_TRAIN_SAMPLES]
-    
-    if MAX_VAL_SAMPLES and len(val_texts) > MAX_VAL_SAMPLES:
-        print(f"[Train] ⚠️ Giới hạn validation samples từ {len(val_texts)} xuống {MAX_VAL_SAMPLES}")
-        val_texts = val_texts[:MAX_VAL_SAMPLES]
-        val_aspects = val_aspects[:MAX_VAL_SAMPLES]
-        val_sentiments = val_sentiments[:MAX_VAL_SAMPLES]
     
     print(f"[Train] Train: {len(train_texts)} mẫu, Val: {len(val_texts)} mẫu")
     

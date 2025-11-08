@@ -25,7 +25,9 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/projects/absa_streaming/scripts:/opt/airflow/projects/absa_streaming/scripts
     - ${AIRFLOW_PROJ_DIR:-.}/projects/absa_streaming/data:/opt/airflow/projects/absa_streaming/data
     - ${AIRFLOW_PROJ_DIR:-.}/projects/absa_streaming:/opt/airflow/projects/absa_streaming
+    - ${AIRFLOW_PROJ_DIR:-.}/projects/vehicle_counting:/opt/airflow/projects/vehicle_counting
     - ${AIRFLOW_PROJ_DIR:-.}/models:/opt/airflow/models
+    - ${AIRFLOW_PROJ_DIR:-.}/videos:/opt/airflow/videos
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -108,6 +110,15 @@ services:
     environment:
       <<: *airflow-common-env
       DUMB_INIT_SETSID: "0"
+      # Increased threads for better performance with 16GB Docker RAM
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
     restart: always
     depends_on:
       <<: *airflow-common-depends-on
@@ -189,6 +200,24 @@ services:
     volumes:
       - ${AIRFLOW_PROJ_DIR:-.}/projects/absa_streaming:/opt/airflow/projects/absa_streaming
       - ${AIRFLOW_PROJ_DIR:-.}/models:/opt/airflow/models
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
+      airflow-scheduler:
+        condition: service_healthy
+      airflow-worker:
+        condition: service_healthy
+      airflow-triggerer:
+        condition: service_healthy
+
+  streamlit-vehicle:
+    image: airflow-base:2.9.0-custom
+    container_name: streamlit-vehicle
+    entrypoint: ["bash", "-c", "streamlit run /opt/airflow/projects/vehicle_counting/streamlit/vehicle_counting_app.py --server.port 8502 --server.address 0.0.0.0"]
+    ports:
+      - "8502:8502"
+    volumes:
+      - ${AIRFLOW_PROJ_DIR:-.}/projects/vehicle_counting:/opt/airflow/projects/vehicle_counting
     depends_on:
       airflow-webserver:
         condition: service_healthy

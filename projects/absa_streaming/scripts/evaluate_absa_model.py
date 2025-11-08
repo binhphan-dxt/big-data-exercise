@@ -18,16 +18,26 @@ import sys
 import json
 import glob
 from datetime import datetime
+import gc
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+# Tăng threads với 16GB Docker RAM
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["MKL_NUM_THREADS"] = "4"
+torch.set_num_threads(4)
+
+# Tắt caching của tokenizer để tiết kiệm RAM
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # === Cấu hình ===
 ASPECTS = ["Price", "Shipping", "Outlook", "Quality", "Size", "Shop_Service", "General", "Others"]
 # Dùng distilbert-base-multilingual-cased để match với train script và tiết kiệm RAM
 MODEL_NAME = "distilbert-base-multilingual-cased"
-MAX_LEN = 64
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 8  # Giảm từ 32 xuống 8 để tiết kiệm RAM
+MAX_LEN = 64  # Tăng lên 64 với 16GB RAM để match train script
+DEVICE = "cpu"  # Force CPU để tránh CUDA overhead trên Mac M chip
+BATCH_SIZE = 8  # Tăng lên 8 với 16GB RAM
+MAX_EVAL_SAMPLES = None  # Không giới hạn - dùng tất cả dữ liệu test
 
 # Đường dẫn
 DATA_PATH = "/opt/airflow/projects/absa_streaming/data/test_data.csv"
@@ -165,6 +175,12 @@ def evaluate_model(model, data_loader, device):
                 if mask.sum() > 0:
                     total_sentiment_correct += (sentiment_preds[mask, i] == sentiment_labels[mask, i]).sum().item()
                     total_sentiment_predicted += mask.sum().item()
+            
+            # Giải phóng memory mỗi batch
+            del input_ids, attention_mask, aspect_labels, sentiment_labels
+            del logits_m, logits_s, loss_aspect, loss_sentiment
+            del aspect_preds, sentiment_preds
+            gc.collect()
     
     avg_loss = total_loss / len(data_loader)
     
@@ -235,13 +251,24 @@ def evaluate_and_compare():
     
     # Load mô hình mới
     print(f"[Evaluate] Đang load mô hình mới: {new_model_path}")
+    # Giải phóng memory trước khi load model
+    gc.collect()
+    
     new_model = ABSAModel()
     new_model.load_state_dict(torch.load(new_model_path, map_location=DEVICE))
     new_model.to(DEVICE)
     
+    # Freeze backbone để tiết kiệm RAM trong evaluation
+    for param in new_model.backbone.parameters():
+        param.requires_grad = False
+    
     # Đánh giá mô hình mới
     print("\n[Evaluate] Đang đánh giá mô hình mới...")
     new_metrics = evaluate_model(new_model, test_loader, DEVICE)
+    
+    # Giải phóng memory sau khi đánh giá
+    del new_model
+    gc.collect()
     
     print(f"\n[Evaluate] 📊 Kết quả mô hình mới:")
     print(f"  Loss: {new_metrics['loss']:.4f}")
@@ -254,6 +281,9 @@ def evaluate_and_compare():
     if os.path.exists(CURRENT_MODEL_PATH):
         print(f"\n[Evaluate] Đang đánh giá mô hình hiện tại: {CURRENT_MODEL_PATH}")
         try:
+            # Giải phóng memory trước khi load model
+            gc.collect()
+            
             current_model = ABSAModel()
             state_dict = torch.load(CURRENT_MODEL_PATH, map_location=DEVICE)
             
@@ -275,6 +305,10 @@ def evaluate_and_compare():
             
             if current_model is not None:
                 current_model.to(DEVICE)
+                # Freeze backbone để tiết kiệm RAM
+                for param in current_model.backbone.parameters():
+                    param.requires_grad = False
+                
                 current_metrics = evaluate_model(current_model, test_loader, DEVICE)
                 
                 print(f"\n[Evaluate] 📊 Kết quả mô hình hiện tại:")
@@ -282,6 +316,10 @@ def evaluate_and_compare():
                 print(f"  Aspect F1: {current_metrics['aspect_f1']:.4f}")
                 print(f"  Sentiment Accuracy: {current_metrics['sentiment_accuracy']:.4f}")
                 print(f"  Overall Score: {current_metrics['overall_score']:.4f}")
+                
+                # Giải phóng memory
+                del current_model
+                gc.collect()
         except Exception as e:
             print(f"[Evaluate] ❌ Lỗi khi đánh giá mô hình hiện tại: {e}")
             print(f"[Evaluate] Mô hình hiện tại không tương thích hoặc bị lỗi")

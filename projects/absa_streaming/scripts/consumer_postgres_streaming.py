@@ -186,6 +186,11 @@ import os
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+# Tăng threads với 16GB Docker RAM
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["MKL_NUM_THREADS"] = "4"
+os.environ["OPENBLAS_NUM_THREADS"] = "4"
+
 # === 1. Spark session với Kafka connector ===
 scala_version = "2.12"
 spark_version = "3.5.1"
@@ -198,10 +203,14 @@ spark = (
             "org.postgresql:postgresql:42.6.0,"
             "org.apache.kafka:kafka-clients:3.5.1")
     .config("spark.executor.instances", "1")
-    .config("spark.executor.cores", "1")
-    .config("spark.driver.maxResultSize", "2g")  # Giảm từ 4g xuống 2g để tiết kiệm RAM
+    .config("spark.executor.cores", "2")  # Tăng từ 1 lên 2
+    .config("spark.executor.memory", "3g")  # Tăng từ 1g lên 3g
+    .config("spark.driver.memory", "3g")  # Tăng từ 1g lên 3g
+    .config("spark.driver.maxResultSize", "2g")  # Tăng từ 512m lên 2g
     .config("spark.sql.streaming.checkpointLocation", "/opt/airflow/checkpoints/absa_streaming_checkpoint")
     .config("spark.sql.execution.arrow.pyspark.enabled", "false")
+    .config("spark.python.worker.memory", "1g")  # Tăng từ 512m lên 1g
+    .config("spark.sql.shuffle.partitions", "4")  # Tăng từ 2 lên 4
     .getOrCreate()
 )
 spark.sparkContext.setLogLevel("WARN")
@@ -213,7 +222,7 @@ df_stream = (
     .option("kafka.bootstrap.servers", "kafka:9092")
     .option("subscribe", "absa-reviews")
     .option("startingOffsets", "earliest")
-    .option("maxOffsetsPerTrigger", 5)  # batch nhỏ
+    .option("maxOffsetsPerTrigger", 10)  # Tăng từ 2 lên 10 với 16GB RAM
     .load()
 )
 
@@ -224,8 +233,8 @@ ASPECTS = ["Price","Shipping","Outlook","Quality","Size","Shop_Service","General
 # Dùng distilbert-base-multilingual-cased thay vì xlm-roberta-base để tiết kiệm RAM (~500MB vs ~1GB)
 MODEL_NAME = "distilbert-base-multilingual-cased"
 MODEL_PATH = "/opt/airflow/models/best_absa_hardshare.pt"
-MAX_LEN = 64
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MAX_LEN = 32  # Giảm từ 64 xuống 32 để tiết kiệm RAM
+DEVICE = "cpu"  # Force CPU để tránh overhead trên Mac M chip
 
 # Global variables để cache model và tokenizer
 _model, _tokenizer = None, None
@@ -393,16 +402,27 @@ df_final = df_final.withColumn("ReviewText", from_json(col("Review"), review_sch
 # === 5. Ghi kết quả vào PostgreSQL ===
 def write_to_postgres(batch_df, batch_id):
     sys.stdout.reconfigure(encoding='utf-8')
-    total_rows = batch_df.count()
-
-    if total_rows == 0:
-        print(f"[Batch {batch_id}] ⚠️ Không có dữ liệu mới.")
+    
+    # Kiểm tra nếu batch rỗng mà KHÔNG gọi count() (count() tốn memory)
+    # Thay vào đó, thử lấy 1 dòng để kiểm tra
+    try:
+        first_row = batch_df.select("ReviewText", *ASPECTS).limit(1).take(1)
+        if len(first_row) == 0:
+            print(f"[Batch {batch_id}] ⚠️ Không có dữ liệu mới.")
+            return
+    except Exception as e:
+        print(f"[Batch {batch_id}] ⚠️ Lỗi khi kiểm tra batch: {e}")
         return
+    
+    # Hiển thị preview (limit 3 để tiết kiệm memory)
+    try:
+        preview = batch_df.select("ReviewText", *ASPECTS).limit(3).toPandas().to_dict(orient="records")
+        print(f"\n[Batch {batch_id}] Nhận dữ liệu mới, hiển thị 3 dòng đầu:")
+        print(json.dumps(preview, ensure_ascii=False, indent=2))
+    except Exception as e:
+        print(f"[Batch {batch_id}] ⚠️ Không thể hiển thị preview: {e}")
 
-    preview = batch_df.select("ReviewText", *ASPECTS).limit(5).toPandas().to_dict(orient="records")
-    print(f"\n[Batch {batch_id}] Nhận {total_rows} dòng, hiển thị 5 dòng đầu:")
-    print(json.dumps(preview, ensure_ascii=False, indent=2))
-
+    # Ghi vào PostgreSQL
     try:
         (batch_df
             .select("ReviewText", *ASPECTS)
@@ -414,15 +434,20 @@ def write_to_postgres(batch_df, batch_id):
             .option("password", "airflow")
             .option("driver", "org.postgresql.Driver")
             .option("charset", "utf8")
+            .option("batchsize", "10")  # Batch size nhỏ để tiết kiệm memory
             .mode("append")
             .save()
         )
-        print(f"[Batch {batch_id}] ✅ Ghi PostgreSQL thành công ({total_rows} dòng).")
+        print(f"[Batch {batch_id}] ✅ Ghi PostgreSQL thành công.")
     except Exception as e:
-        print(f"[Batch {batch_id}] ⚠️ Không thể ghi PostgreSQL, ghi log ra console thay thế.")
-        print(f"Lỗi: {str(e)}")
-        subset = batch_df.select("ReviewText", *ASPECTS).limit(5).toPandas().to_dict(orient="records")
-        print(json.dumps(subset, ensure_ascii=False, indent=2))
+        print(f"[Batch {batch_id}] ⚠️ Không thể ghi PostgreSQL: {str(e)}")
+        # Fallback: ghi log ra console
+        try:
+            subset = batch_df.select("ReviewText", *ASPECTS).limit(3).toPandas().to_dict(orient="records")
+            print(f"[Batch {batch_id}] Dữ liệu (console fallback):")
+            print(json.dumps(subset, ensure_ascii=False, indent=2))
+        except Exception as e2:
+            print(f"[Batch {batch_id}] ⚠️ Không thể ghi console fallback: {e2}")
 
 # === 6. Bắt đầu stream ===
 query = (
