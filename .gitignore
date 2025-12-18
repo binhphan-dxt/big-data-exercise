@@ -2,3 +2,7 @@ __pycache__/
 logs/
 *.pt
 *.json
+Images/*
+Masks/*
+videos/fire_clip.mp4
+.DS_Store

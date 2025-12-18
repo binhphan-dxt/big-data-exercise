@@ -26,6 +26,7 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/projects/absa_streaming/data:/opt/airflow/projects/absa_streaming/data
     - ${AIRFLOW_PROJ_DIR:-.}/projects/absa_streaming:/opt/airflow/projects/absa_streaming
     - ${AIRFLOW_PROJ_DIR:-.}/projects/vehicle_counting:/opt/airflow/projects/vehicle_counting
+    - ${AIRFLOW_PROJ_DIR:-.}/projects/fire_segmentation:/opt/airflow/projects/fire_segmentation
     - ${AIRFLOW_PROJ_DIR:-.}/models:/opt/airflow/models
     - ${AIRFLOW_PROJ_DIR:-.}/videos:/opt/airflow/videos
   user: "${AIRFLOW_UID:-50000}:0"
@@ -218,6 +219,24 @@ services:
       - "8502:8502"
     volumes:
       - ${AIRFLOW_PROJ_DIR:-.}/projects/vehicle_counting:/opt/airflow/projects/vehicle_counting
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
+      airflow-scheduler:
+        condition: service_healthy
+      airflow-worker:
+        condition: service_healthy
+      airflow-triggerer:
+        condition: service_healthy
+
+  streamlit-fire:
+    image: airflow-base:2.9.0-custom
+    container_name: streamlit-fire
+    entrypoint: ["bash", "-c", "streamlit run /opt/airflow/projects/fire_segmentation/streamlit/fire_detection_app.py --server.port 8503 --server.address 0.0.0.0"]
+    ports:
+      - "8503:8503"
+    volumes:
+      - ${AIRFLOW_PROJ_DIR:-.}/projects/fire_segmentation:/opt/airflow/projects/fire_segmentation
     depends_on:
       airflow-webserver:
         condition: service_healthy
